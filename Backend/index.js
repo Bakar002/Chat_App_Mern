@@ -6,6 +6,11 @@ const User = require('./models/User');
 const cors=require('cors');
 const bcrypt = require('bcryptjs'); 
 const jwt = require('jsonwebtoken');  
+const ws = require('ws'); 
+
+
+
+
 const bcryptSalt = bcrypt.genSaltSync (10);
 dotenv.config();
  const jwtSecret = process.env.JWT_SECRET_KEY;
@@ -26,7 +31,6 @@ origin:process.env.Client_Url
 }))
 app.use(cookieParser());
 const port = 4000;
-app.listen(port);
 app.get('/test', (req, res) => {
   res.send('Hello how are you')
 });
@@ -117,4 +121,45 @@ if(err) throw err;
 res.status(500).json('ok');
     }
  });           
- 
+const server=app.listen(port);
+
+
+const wss = new ws.WebSocketServer({ server });
+
+wss.on('connection', (connection, req) => {
+  const cookies = req.headers.cookie;
+  if (cookies) {
+    const tokenCookiesString = cookies.split(';').find(str => str.trim().startsWith('token'));
+    if (tokenCookiesString) {
+      const token = tokenCookiesString.split('=')[1];
+      if (token) {
+        jwt.verify(token, jwtSecret, {}, (err, userData) => {
+          if (err) {
+            console.error('JWT verification error:', err);
+            connection.close();
+            return;
+          }
+          const { userId, username } = userData;
+          connection.userId = userId;
+          connection.username = username;
+
+          // Notify all clients about the current clients
+          const clientsData = {
+            online: [...wss.clients]
+              .filter(client => client.userId && client.username)
+              .map(client => ({
+                userId: client.userId,
+                username: client.username,
+              })),
+          };
+          const message = JSON.stringify(clientsData);
+          [...wss.clients].forEach(client => {
+            if (client.readyState === ws.OPEN) {
+              client.send(message);
+            }
+          });
+        });
+      }
+    }
+  }
+});
