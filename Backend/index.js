@@ -1,9 +1,12 @@
 const express = require('express');
 const dotenv=   require('dotenv');  
 const  mongoose  = require('mongoose');
+const cookieParser = require('cookie-parser');
 const User = require('./models/User');
 const cors=require('cors');
-const jwt = require('jsonwebtoken');    
+const bcrypt = require('bcryptjs'); 
+const jwt = require('jsonwebtoken');  
+const bcryptSalt = bcrypt.genSaltSync (10);
 dotenv.config();
  const jwtSecret = process.env.JWT_SECRET_KEY;
 
@@ -21,26 +24,90 @@ credentials:true,
 origin:process.env.Client_Url
 
 }))
+app.use(cookieParser());
 const port = 4000;
 app.listen(port);
 app.get('/test', (req, res) => {
   res.send('Hello how are you')
 });
 
+
+app.get('/profile',(req,res) => {
+const token=req.cookies?.token;
+if(token) {
+jwt.verify(token,jwtSecret,{},(err,userData)=>{
+if (err) throw err; 
+
+console.log('hello testing')
+res.json({userData});
+
+});}
+else{
+  res.status(401).json({message:'no token'});
+} 
+
+
+
+})
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+  
+  try {
+    const foundUser = await User.findOne({ username });
+
+    if (!foundUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const passOk = bcrypt.compareSync(password, foundUser.password);
+
+    if (!passOk) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+
+    jwt.sign({ userId: foundUser._id, username }, jwtSecret, {}, (err, token) => {
+      if (err) {
+        throw err;
+      }
+      res.cookie('token', token, { sameSite: 'none', secure: true }).json({
+        id: foundUser._id,
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+
+
+
+
+
+
+
+
 app.post('/register', async(req, res) => { 
 const {username, password} = req.body;
 console.log(req.body.username);
+
 try{
-console.log('hellotwo')
+const hasPassword = bcrypt.hashSync(password,bcryptSalt);   
 
-const createdUser= await User.create({username, password});
-console.log('hellotwo')
+const createdUser= await User.create({
+  
+  
+  username:username, 
+  password:hasPassword ,
 
-     jwt.sign({userId:createdUser._id},jwtSecret ,{},(err,token) => {  
+
+});
+
+
+     jwt.sign({userId:createdUser._id,username},jwtSecret ,{},(err,token) => {  
 
         if (err) throw err;
-        res.cookie("token",token ).status(201).json({
-            _id:createdUser._id
+        res.cookie("token",token,{sameSite:'none',secure:'true'} ).status(201).json({
+            id:createdUser._id
         });   
      });
     }
